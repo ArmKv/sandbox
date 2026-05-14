@@ -1,0 +1,279 @@
+name: Sample CI Pipeline
+
+# Azure DevOps -> GitHub Actions quick map:
+# - stage   -> a group of jobs connected with `needs`
+# - job     -> `jobs.<job-id>`
+# - task    -> a `uses:` step or a `run:` step
+# - step    -> `steps:` item inside a job
+# - variables -> `env:` or repository/environment variables
+# - artifacts -> `actions/upload-artifact` and `actions/download-artifact`
+#
+# Quick guide for passing values in GitHub Actions:
+# - Use workflow/job/step `env` for static values that are already known.
+# - Use `GITHUB_ENV` to pass a value from one step to later steps in the same job.
+# - Use step outputs + job outputs to pass a small runtime value to another job.
+# - Use artifacts to pass files or directories between jobs.
+# - Use `vars` for shared non-secret configuration and `secrets` for sensitive values.
+
+on:
+  # Trigger: run automatically when code is pushed to these branches.
+  # Azure DevOps equivalent: `trigger:`.
+  push:
+    branches:
+      - main
+      - develop
+  # Trigger: run automatically when a pull request targets these branches.
+  # Azure DevOps equivalent: `pr:`.
+  pull_request:
+    branches:
+      - main
+      - develop
+  # Trigger: allow a user to start this pipeline manually from GitHub UI, API, or CLI.
+  # Azure DevOps equivalent: manual "Run pipeline" with parameters.
+  workflow_dispatch:
+    inputs:
+      # Input: a manual-run parameter.
+      # Azure DevOps equivalent: `parameters:` on a pipeline or template.
+      run_deploy:
+        description: Run the deploy stage
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+# Permissions: scope for the automatic `GITHUB_TOKEN` used by the workflow.
+# Azure DevOps has no direct YAML twin; the closest concept is limiting what the
+# pipeline identity or service connection can do.
+permissions:
+  contents: read
+
+# Concurrency: prevent overlapping runs for the same ref and cancel older ones.
+# Azure DevOps has similar behavior through pipeline/run settings, but not as a
+# direct one-to-one top-level YAML keyword.
+concurrency:
+  group: sample-pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+# Variables shared by all jobs and steps in this workflow.
+# Azure DevOps equivalent: `variables:`.
+# Technique 1: workflow-level `env` for static values known before the run starts.
+# These values are available in every job and every step in this workflow.
+env:
+  ARTIFACT_NAME: pipeline-output
+  BUILD_CONFIGURATION: Release
+
+# Jobs: the main execution blocks in GitHub Actions.
+# Azure DevOps equivalent: `jobs:`.
+jobs:
+  # This job represents a validation stage.
+  # In Azure DevOps you would commonly model this as a stage containing one job.
+  validate:
+    name: Validate Stage
+    runs-on: ubuntu-latest
+
+    # Steps: ordered units executed inside a job.
+    # Azure DevOps equivalent: `steps:`.
+    steps:
+      # `uses` step: runs a reusable action.
+      # Azure DevOps closest equivalent: a predefined task, for example `checkout`.
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # `run` step: executes shell commands.
+      # Azure DevOps equivalent: script steps such as `bash`, `pwsh`, or `script`.
+      - name: Show pipeline context
+        shell: bash
+        run: |
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Branch: $GITHUB_REF_NAME"
+          echo "Commit: $GITHUB_SHA"
+          echo "Triggered by: $GITHUB_EVENT_NAME"
+
+      # Another script step used for simple validation.
+      - name: Verify workflow files exist
+        shell: bash
+        run: |
+          test -d .github/workflows
+          ls -la .github/workflows
+
+  # This job depends on `validate`.
+  # Azure DevOps equivalent: a job or stage using `dependsOn`.
+  build:
+    name: Build Stage
+    runs-on: ubuntu-latest
+    needs: validate
+    # Technique 3: job outputs for passing a small runtime value to another job.
+    # Azure DevOps equivalent: an output variable used with `dependsOn`.
+    outputs:
+      build_version: ${{ steps.build_metadata.outputs.build_version }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # Technique 2: step-to-step values inside the same job using `GITHUB_ENV`.
+      # Azure DevOps equivalent: setting a variable during execution for later
+      # steps in the same job.
+      - name: Set runtime variable for later steps in this job
+        shell: bash
+        run: |
+          echo "PACKAGE_PATH=out/runtime-package" >> "$GITHUB_ENV"
+
+      # Technique 3 starts here: write a step output to `GITHUB_OUTPUT`, then
+      # expose it as a job output above.
+      - name: Create build metadata output
+        id: build_metadata
+        shell: bash
+        run: |
+          echo "build_version=1.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      # Build script step.
+      - name: Create build output
+        shell: bash
+        run: |
+          mkdir -p "$PACKAGE_PATH"
+          cat <<EOF > out/build-info.txt
+          Build configuration: $BUILD_CONFIGURATION
+          Workflow: $GITHUB_WORKFLOW
+          Run number: $GITHUB_RUN_NUMBER
+          Commit: $GITHUB_SHA
+          Build version: ${{ steps.build_metadata.outputs.build_version }}
+          Runtime package path: $PACKAGE_PATH
+          EOF
+
+      # Artifact publish step.
+      # Azure DevOps equivalent: `PublishPipelineArtifact` or `PublishBuildArtifacts` task.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: out/
+          if-no-files-found: error
+
+  # Matrix job: run the same logical test job on multiple operating systems.
+  # Azure DevOps equivalent: a matrix strategy on a job.
+  test:
+    name: Test Stage
+    runs-on: ${{ matrix.os }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # Artifact download step.
+      # Azure DevOps equivalent: `DownloadPipelineArtifact` task.
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: downloaded
+
+      # Conditional step.
+      # Azure DevOps equivalent: a step with `condition:`.
+      - name: Run validation on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test -f downloaded/build-info.txt
+          cat downloaded/build-info.txt
+
+      # Conditional PowerShell step.
+      - name: Run validation on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path downloaded/build-info.txt)) {
+            throw 'Artifact file was not downloaded.'
+          }
+          Get-Content downloaded/build-info.txt
+
+  # Packaging job after tests pass.
+  package:
+    name: Package Stage
+    runs-on: ubuntu-latest
+    needs: test
+    # Technique 4: job-level `env` for values only needed in this one job.
+    # Azure DevOps equivalent: a variable declared at job scope.
+    env:
+      PACKAGE_FILE: release.tgz
+
+    steps:
+      # Download the artifact produced in the build job.
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: package-input
+
+      # Package script step.
+      - name: Create release bundle
+        shell: bash
+        run: |
+          mkdir -p package
+          tar -czf package/$PACKAGE_FILE -C package-input .
+
+      # Publish the packaged artifact for later jobs.
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged-release
+          path: package/${{ env.PACKAGE_FILE }}
+          if-no-files-found: error
+
+  # Deploy job.
+  # Azure DevOps equivalent: a deployment stage/job, often with `dependsOn`,
+  # `condition`, and an environment target.
+  deploy:
+    name: Deploy Stage
+    runs-on: ubuntu-latest
+    # To consume `build` job outputs here, `build` must be listed in `needs`.
+    # Azure DevOps equivalent idea: you can only read outputs from dependencies
+    # that are part of the current dependency graph.
+    needs:
+      - package
+      - build
+    # Condition: only deploy from `main`, and for manual runs only when the
+    # `run_deploy` input is set to `true`.
+    # Azure DevOps equivalent: `condition:`.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name != 'workflow_dispatch' || inputs.run_deploy == 'true')
+    # Environment: target environment with optional protection rules.
+    # Azure DevOps equivalent: `environment:`.
+    environment:
+      name: production
+    # Technique 3 continued: consume a runtime value produced by the `build` job.
+    # Syntax: `needs.<job-id>.outputs.<output-name>`.
+    env:
+      BUILD_VERSION: ${{ needs.build.outputs.build_version }}
+
+    steps:
+      - name: Download packaged artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: packaged-release
+          path: deploy-input
+
+      # Technique 5: repository/environment variables and secrets.
+      # Azure DevOps equivalent: variable groups / secret variables.
+      # Example only: uncomment when these exist in GitHub settings.
+      # env:
+      #   TARGET_REGION: ${{ vars.TARGET_REGION }}
+      #   API_TOKEN: ${{ secrets.API_TOKEN }}
+
+      # Deployment script step.
+      - name: Simulate deployment
+        shell: bash
+        run: |
+          echo "Deploying version $BUILD_VERSION"
+          echo "Deploying deploy-input/release.tgz to production"
+          ls -la deploy-input

@@ -1,0 +1,187 @@
+name: Terraform Pipeline
+
+# Azure DevOps -> GitHub Actions quick map for Terraform:
+# - TerraformTask@5 -> setup action + `terraform` CLI commands
+# - service connection -> `azure/login`
+# - PublishPipelineArtifact -> `actions/upload-artifact`
+# - DownloadPipelineArtifact -> `actions/download-artifact`
+
+on:
+  # Automatic triggers disabled on purpose.
+  # Uncomment `push` / `pull_request` if you later want CI-style Terraform runs.
+  # push:
+  #   branches:
+  #     - main
+  #     - develop
+  #   paths:
+  #     - infra/**
+  #     - .github/workflows/terraform.yaml
+  # pull_request:
+  #   branches:
+  #     - main
+  #     - develop
+  #   paths:
+  #     - infra/**
+  #     - .github/workflows/terraform.yaml
+  # Manual run with an input similar to Azure DevOps parameters.
+  workflow_dispatch:
+    inputs:
+      terraform_action:
+        description: Choose whether to run plan only or plan and apply
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+
+permissions:
+  contents: read
+  # Needed when using Azure federated identity with `azure/login`.
+  id-token: write
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+# Workflow-level variables.
+# Azure DevOps equivalent: pipeline `variables:`.
+env:
+  TF_WORKING_DIR: infra
+  TF_STATE_RESOURCE_GROUP: arke-terraform-state-rg
+  TF_STATE_STORAGE_ACCOUNT: arketfstatest88
+  TF_STATE_CONTAINER: tfstate
+  TF_STATE_KEY: github.terraform.tfstate
+
+jobs:
+  validate_config:
+    name: Validate Terraform Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      terraform_exists: ${{ steps.check.outputs.terraform_exists }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # Guard step so the workflow stays usable before Terraform code exists.
+      - name: Check Terraform directory
+        id: check
+        shell: bash
+        run: |
+          if [ -d "$TF_WORKING_DIR" ]; then
+            echo "terraform_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "terraform_exists=false" >> "$GITHUB_OUTPUT"
+            echo "Terraform directory '$TF_WORKING_DIR' not found. Plan/apply jobs will be skipped."
+          fi
+
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: validate_config
+    if: needs.validate_config.outputs.terraform_exists == 'true'
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # Azure DevOps equivalent: TerraformTask tool installation/setup.
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # Azure DevOps equivalent: service connection used by TerraformTask.
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Azure DevOps equivalent: `TerraformTask@5` with command `init`.
+      - name: Terraform init
+        shell: bash
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=$TF_STATE_RESOURCE_GROUP" \
+            -backend-config="storage_account_name=$TF_STATE_STORAGE_ACCOUNT" \
+            -backend-config="container_name=$TF_STATE_CONTAINER" \
+            -backend-config="key=$TF_STATE_KEY"
+
+      # Optional but commonly useful.
+      # Azure DevOps equivalent: TerraformTask validate/format commands.
+      - name: Terraform validate
+        shell: bash
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform validate
+
+      # Azure DevOps equivalent: `TerraformTask@5` with command `plan`.
+      - name: Terraform plan
+        shell: bash
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform plan -out=tfplan
+
+      # Azure DevOps equivalent: PublishPipelineArtifact after plan.
+      - name: Upload Terraform plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ env.TF_WORKING_DIR }}/tfplan
+          if-no-files-found: error
+
+  apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs:
+      - validate_config
+      - plan
+    if: >-
+      needs.validate_config.outputs.terraform_exists == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.terraform_action == 'apply'
+    # Approval in GitHub Actions is enforced through an environment.
+    # Configure required reviewers in:
+    # Settings -> Environments -> terraform-production
+    # Azure DevOps equivalent: environment approvals/checks before deployment.
+    environment:
+      name: terraform-production
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Azure DevOps equivalent: DownloadPipelineArtifact before apply.
+      - name: Download Terraform plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ env.TF_WORKING_DIR }}
+
+      # Re-run init in the apply job because jobs do not share machine state.
+      - name: Terraform init
+        shell: bash
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=$TF_STATE_RESOURCE_GROUP" \
+            -backend-config="storage_account_name=$TF_STATE_STORAGE_ACCOUNT" \
+            -backend-config="container_name=$TF_STATE_CONTAINER" \
+            -backend-config="key=$TF_STATE_KEY"
+
+      # Azure DevOps equivalent: `TerraformTask@5` with command `apply`.
+      - name: Terraform apply
+        shell: bash
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -auto-approve tfplan
