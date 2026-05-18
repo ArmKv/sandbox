@@ -18,7 +18,7 @@ locals {
 }
 
 module "rg" {
-  source = "../../modules/rg"
+  source = "../modules/rg"
 
   name     = local.resource_group_name
   location = var.location
@@ -26,7 +26,7 @@ module "rg" {
 }
 
 module "vnet" {
-  source = "../../modules/vnet"
+  source = "../modules/vnet"
 
   name                    = local.virtual_network_name
   resource_group_name     = module.rg.name
@@ -40,7 +40,7 @@ module "vnet" {
 }
 
 module "subnet" {
-  source = "../../modules/subnet"
+  source = "../modules/subnet"
 
   resource_group_name  = module.rg.name
   virtual_network_name = module.vnet.name
