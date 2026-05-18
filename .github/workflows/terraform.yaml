@@ -144,9 +144,12 @@ jobs:
     # Approval in GitHub Actions is enforced through an environment.
     # Configure required reviewers in:
     # Settings -> Environments -> terraform-production
+    # This also changes the GitHub OIDC subject claim to:
+    # repo:<owner>/<repo>:environment:terraform-production
+    # The Azure app registration must have a matching federated credential.
     # Azure DevOps equivalent: environment approvals/checks before deployment.
     environment:
-      name: terraform-production
+      name: production
 
     steps:
       - name: Checkout source
