@@ -1,10 +1,10 @@
-project_name = "learn-tf"
+project_name = "arke-learntf"
 environment  = "dev"
 location     = "westeurope"
 
 tags = {
   environment = "dev"
-  project     = "learn-tf"
+  project     = "arke-learntf"
 }
 
 vnet = {
