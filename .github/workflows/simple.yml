@@ -27,6 +27,10 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Check node version
+        run: node --version
+
+
   demo-job-windows:
     runs-on: windows-latest
 
