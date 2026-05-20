@@ -80,6 +80,8 @@ jobs:
       - name: Print shared array
         run: |
           $array = $env:SHARED_ARRAY | ConvertFrom-Json
+          Write-Host "Array type: $($array.GetType().FullName)"
+          Write-Host "First item type: $($array[0].GetType().FullName)"
           Write-Host "Array items from ubuntu job:"
           foreach ($item in $array) {
             Write-Host "- $item"
@@ -88,6 +90,7 @@ jobs:
       - name: Print shared object
         run: |
           $object = $env:SHARED_OBJECT | ConvertFrom-Json
+          Write-Host "Object type: $($object.GetType().FullName)"
           Write-Host "Object name: $($object.name)"
           Write-Host "Object environment: $($object.environment)"
           Write-Host "Object enabled: $($object.enabled)"
