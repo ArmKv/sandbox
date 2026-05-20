@@ -8,6 +8,8 @@ on:
 jobs:
   demo-job:
     runs-on: ubuntu-latest
+    outputs:
+      shared_message: ${{ steps.set_message.outputs.shared_message }}
 
     steps:
       - name: Checkout repo
@@ -30,9 +32,19 @@ jobs:
       - name: Check node version
         run: node --version
 
+      - name: Define and print variable
+        id: set_message
+        run: |
+          shared_message="Hello from demo-job"
+          echo "demo-job variable: $shared_message"
+          echo "shared_message=$shared_message" >> "$GITHUB_OUTPUT"
+
 
   demo-job-windows:
     runs-on: windows-latest
+    needs: demo-job
+    env:
+      SHARED_MESSAGE: ${{ needs.demo-job.outputs.shared_message }}
 
     steps:
       - name: Checkout repo
@@ -46,3 +58,7 @@ jobs:
 
       - name: Print current folder
         run: cd
+
+      - name: Print shared variable
+        run: |
+          Write-Host "demo-job variable from ubuntu job: $env:SHARED_MESSAGE"
