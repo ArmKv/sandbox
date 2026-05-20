@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       shared_message: ${{ steps.set_message.outputs.shared_message }}
+      shared_array: ${{ steps.set_data.outputs.shared_array }}
+      shared_object: ${{ steps.set_data.outputs.shared_object }}
 
     steps:
       - name: Checkout repo
@@ -39,12 +41,24 @@ jobs:
           echo "demo-job variable: $shared_message"
           echo "shared_message=$shared_message" >> "$GITHUB_OUTPUT"
 
+      - name: Define array and object outputs
+        id: set_data
+        run: |
+          shared_array='["one","two","three"]'
+          shared_object='{"name":"ubuntu-job","environment":"demo","enabled":true}'
+          echo "demo-job array: $shared_array"
+          echo "demo-job object: $shared_object"
+          echo "shared_array=$shared_array" >> "$GITHUB_OUTPUT"
+          echo "shared_object=$shared_object" >> "$GITHUB_OUTPUT"
+
 
   demo-job-windows:
     runs-on: windows-latest
     needs: demo-job
     env:
       SHARED_MESSAGE: ${{ needs.demo-job.outputs.shared_message }}
+      SHARED_ARRAY: ${{ needs.demo-job.outputs.shared_array }}
+      SHARED_OBJECT: ${{ needs.demo-job.outputs.shared_object }}
 
     steps:
       - name: Checkout repo
@@ -62,3 +76,18 @@ jobs:
       - name: Print shared variable
         run: |
           Write-Host "demo-job variable from ubuntu job: $env:SHARED_MESSAGE"
+
+      - name: Print shared array
+        run: |
+          $array = $env:SHARED_ARRAY | ConvertFrom-Json
+          Write-Host "Array items from ubuntu job:"
+          foreach ($item in $array) {
+            Write-Host "- $item"
+          }
+
+      - name: Print shared object
+        run: |
+          $object = $env:SHARED_OBJECT | ConvertFrom-Json
+          Write-Host "Object name: $($object.name)"
+          Write-Host "Object environment: $($object.environment)"
+          Write-Host "Object enabled: $($object.enabled)"
