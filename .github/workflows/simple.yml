@@ -1,4 +1,4 @@
-name: Simple Pipeline
+name: Simple Pipeline for learning purposes
 
 on:
   push:
