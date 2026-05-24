@@ -21,3 +21,7 @@ jobs:
       - name: run audit npm
         working-directory: ./nodejsapp
         run: npm audit --audit-level=high
+
+      - name: run build npm
+        working-directory: ./nodejsapp
+        run: npm run build
