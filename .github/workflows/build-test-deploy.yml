@@ -40,6 +40,10 @@ jobs:
         working-directory: ./nodejsapp
         run: npm install  
         
-      - name: run test npm
+      - name: run test placeholder
         working-directory: ./nodejsapp
         run: npm test  
+
+      - name: run lint placeholder
+        working-directory: ./nodejsapp
+        run: npm run lint          
