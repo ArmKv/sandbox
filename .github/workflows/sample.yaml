@@ -18,12 +18,15 @@ name: Sample CI Pipeline
 on:
   # Trigger: run automatically when code is pushed to these branches.
   # Azure DevOps equivalent: `trigger:`.
-  push:
-    branches:
-      - main
-      - develop
+
+  # push:
+  #   branches:
+  #     - main
+  #     - develop
+  
   # Trigger: run automatically when a pull request targets these branches.
   # Azure DevOps equivalent: `pr:`.
+
   pull_request:
     branches:
       - main
