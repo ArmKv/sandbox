@@ -21,7 +21,7 @@ jobs:
         run: echo "Hello from GitHub Actions!"
 
       - name: Say hello from file
-        run: echo "$(cat hello.txt)"
+        run: echo "$(cat .github/hello.txt)"
 
       - name: Show files
         run: ls -la
