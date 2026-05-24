@@ -1,6 +1,8 @@
 name : build-test-deploy
 
-on: push
+# on: push
+on:
+  workflow_dispatch:
 
 jobs:
   build: 
@@ -47,7 +49,7 @@ jobs:
       - name: run lint placeholder
         working-directory: ./nodejsapp
         run: npm run lint        
-          
+
   deploy:
     needs: test
     permissions:
